@@ -1,8 +1,14 @@
 import cv2
 import os
+import threading
+import time
 import numpy as np
 from deepface import DeepFace
 from typing import List, Dict, Any, Union
+
+current_emotion = 'neutral'
+frame_for_analysis = None
+program_is_running = True
 
 def load_photos(directory: str) -> dict:
     """
@@ -16,7 +22,12 @@ def load_photos(directory: str) -> dict:
         photo_path = os.path.join(directory, f"{emotion}.jpg")
         if os.path.exists(photo_path):
             img = cv2.imread(photo_path)
-            fotos_dict[emotion] = img
+
+            if img is not None:
+                fotos_dict[emotion] = img
+            else:
+                print(f"Erro: O arquivo {photo_path} existe, mas não pôde ser lido pelo OpenCV. Pode estar corrompido ou com extensão incorreta.")
+                fotos_dict[emotion] = np.zeros((480, 480, 3), dtype=np.uint8)
         else:
             print(f"Aviso: Foto não encontrada para a emoção '{emotion}'. Crie o arquivo {photo_path}.")
             # Cria uma imagem preta de fallback caso falte alguma foto
@@ -35,16 +46,39 @@ def get_first_emotion(result: Union[List[Dict[str, Any]], List[List[Dict[str, An
         return result[0][0]
     return result[0]
 
+def process_emotion_analysis(sleep_time: float = 3.0):
+    global current_emotion, frame_for_analysis, program_is_running
+    
+    while program_is_running:
+        if frame_for_analysis is not None:
+            try:
+                emotion_detection_result = DeepFace.analyze(
+                    frame_for_analysis, 
+                    actions=['emotion'], 
+                    enforce_detection=False, 
+                    silent=True
+                )
+                first_face_result = get_first_emotion(emotion_detection_result)
+                current_emotion = first_face_result['dominant_emotion']
+            except Exception as e:
+                pass # Se não achar rosto, mantém a última emoção detectada
+        time.sleep(sleep_time) # Pequena pausa para evitar uso excessivo da CPU
+
 def main():
+    global frame_for_analysis, program_is_running, current_emotion
+
     # 1. Carrega o banco de imagens de emoções
     photos = load_photos("photos")
     
     # 2. Inicia a webcam
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(1)
     
     if not cap.isOpened():
         print("Erro: Não foi possível abrir a câmera.")
         return
+
+    process_emotion_thread = threading.Thread(target=process_emotion_analysis, daemon=True)
+    process_emotion_thread.start()
 
     print("Câmera iniciada. Pressione 'q' para sair.")
     
@@ -106,6 +140,10 @@ def main():
         # Se pressionar a tecla 'q', fecha o programa
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+
+    program_is_running = False
+
+    process_emotion_thread.join()  # Aguarda a thread de análise de emoção terminar
 
     # Libera a câmera e fecha as janelas
     cap.release()
