@@ -6,9 +6,14 @@ import numpy as np
 from deepface import DeepFace
 from typing import List, Dict, Any, Union
 
+emotion_analysis_delay = 0.01  # Segundos entre cada análise de emoção
 current_emotion = 'neutral'
+current_face_region = None
 frame_for_analysis = None
 program_is_running = True
+
+face_square_color = (0, 0, 255) # Vermelho
+face_square_thickness = 2
 
 def load_photos(directory: str) -> dict:
     """
@@ -46,8 +51,8 @@ def get_first_emotion(result: Union[List[Dict[str, Any]], List[List[Dict[str, An
         return result[0][0]
     return result[0]
 
-def process_emotion_analysis(sleep_time: float = 3.0):
-    global current_emotion, frame_for_analysis, program_is_running
+def process_emotion_analysis():
+    global current_emotion, current_face_region, frame_for_analysis, program_is_running
     
     while program_is_running:
         if frame_for_analysis is not None:
@@ -58,11 +63,14 @@ def process_emotion_analysis(sleep_time: float = 3.0):
                     enforce_detection=False, 
                     silent=True
                 )
+
                 first_face_result = get_first_emotion(emotion_detection_result)
+
                 current_emotion = first_face_result['dominant_emotion']
+                current_face_region = first_face_result['region']
             except Exception as e:
-                pass # Se não achar rosto, mantém a última emoção detectada
-        time.sleep(sleep_time) # Pequena pausa para evitar uso excessivo da CPU
+                current_face_region = None # Se não achar rosto, remove o quadrado
+        time.sleep(emotion_analysis_delay)
 
 def main():
     global frame_for_analysis, program_is_running, current_emotion
@@ -77,7 +85,7 @@ def main():
         print("Erro: Não foi possível abrir a câmera.")
         return
 
-    process_emotion_thread = threading.Thread(target=process_emotion_analysis, daemon=True)
+    process_emotion_thread = threading.Thread(target=process_emotion_analysis, daemon=True, name="EmotionAnalysis")
     process_emotion_thread.start()
 
     print("Câmera iniciada. Pressione 'q' para sair.")
@@ -92,35 +100,35 @@ def main():
         # Espelha o frame para ficar mais natural (como um espelho)
         frame = cv2.flip(frame, 1)
 
-        # 3. Analisa a emoção do rosto no frame atual
-        # Usamos try/except porque o DeepFace dá erro se não encontrar nenhum rosto
-        try:
-            # enforce_detection=False evita que o programa trave se você virar o rosto
-            emotion_detection_result = DeepFace.analyze(
-                frame, 
-                actions=['emotion'], 
-                enforce_detection=False, 
-                silent=True
+        # 3. Envia o frame atual para a thread de análise
+        frame_for_analysis = frame.copy()
+
+        # 4. Desenha o quadrado e a emoção usando o resultado mais recente da thread
+        if current_face_region is not None:
+            x, y, w, h = current_face_region['x'], current_face_region['y'], current_face_region['w'], current_face_region['h']
+
+            cv2.rectangle(
+                frame,
+                pt1=(x, y),
+                pt2=(x + w, y + h),
+                color=face_square_color,
+                thickness=face_square_thickness
             )
 
-            first_face_result = get_first_emotion(emotion_detection_result)
+            label = f"Emotion: {current_emotion}"
+            label_y = y - 10 if y - 10 > 10 else y + h + 25
 
-            current_emotion = first_face_result['dominant_emotion']
-        except Exception as e:
-            pass # Se não achar rosto, mantém a última emoção detectada
+            cv2.putText(
+                frame,
+                text=label,
+                org=(x, label_y),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.9,
+                color=face_square_color,
+                thickness=2
+            )
 
-        # Escreve a emoção na tela do usuário
-        cv2.putText(
-            frame, 
-            text=f"Sua Emocao: {current_emotion}", 
-            org=(20, 40), 
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX, 
-            fontScale=1, 
-            color=(0, 255, 0), 
-            thickness=2
-        )
-
-        # 4. Pega a foto da emoção correspondente
+        # 5. Pega a foto da emoção correspondente
         img_emotion = photos.get(current_emotion, photos['neutral'])
         
         # Redimensiona a foto da emoção para ter a mesma altura da webcam
