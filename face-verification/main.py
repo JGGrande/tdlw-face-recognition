@@ -22,6 +22,8 @@ while True:
     if not ret:
         break
 
+    frame = cv2.flip(frame, 1) # Espelha o frame
+
     cinza = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     rostos = detector.detectMultiScale(cinza, scaleFactor=1.1, minNeighbors=5, minSize=(80, 80))
 
@@ -43,13 +45,18 @@ while True:
                 resultado_autorizado = False
 
         if resultado_autorizado:
-            # Exibe o preview do usuário autorizado abaixo do retângulo
+            # Exibe o preview do usuário autorizado centralizado abaixo do retângulo
             y1 = y + h + 5
             y2 = y1 + preview_usuario.shape[0]
-            x1 = x
+            x1 = x + (w - preview_usuario.shape[1]) // 2
             x2 = x1 + preview_usuario.shape[1]
-            if y2 < frame.shape[0] and x2 < frame.shape[1]:
+            if y2 < frame.shape[0] and x2 < frame.shape[1] and x1 >= 0:
                 frame[y1:y2, x1:x2] = preview_usuario
+                cv2.putText(
+                    frame, "Autorizado",
+                    (x1, y2 + 20),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2
+                )
         elif resultado_autorizado is not None:
             cv2.putText(
                 frame, "Nao autorizado",
